@@ -156,7 +156,7 @@ def seamanship_contest(captain, ship, defense_ship, average_manoeuvre=False, rer
         success2, tie2 = roll_dice(n_reroll)
         old = n_dice - success - n_reroll
         if old > 0:
-            attack_tie = np.concatenate([tie2, tie[-old:]])
+            tie = np.concatenate([tie2, tie[-old:]])
         else:
             tie = tie2
         success += success2
@@ -207,7 +207,7 @@ def long_shot(attack_ship: Ship, defense_ship: Ship):
 
 def battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Captain, defense_captain: Captain,
            use_tiebreaker=True, average_manoeuvre=False, defender_hook_boarding=False, defender_fleeing=False,
-           reroll_rule=False, attacker_boarding=False):
+           reroll_rule=False, attacker_boarding=False, round=1):
     new_defense_ship = long_shot(attack_ship, defense_ship)
     new_attack_ship = long_shot(defense_ship, attack_ship)
 
@@ -215,7 +215,6 @@ def battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Captain, defen
     defense_ship = new_defense_ship
 
     battle_over = False
-    round = 1
     save_hooks = False
     while attack_ship.hull > 0 and defense_ship.hull > 0 and not battle_over:
         attack_success, attack_tie, _ = seamanship_contest(attack_captain, attack_ship, defense_ship, average_manoeuvre,
@@ -308,7 +307,7 @@ def simulate_battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Capta
                     average_manoeuvre=False,
                     defender_hook_boarding=False,
                     defender_fleeing=False,
-                    reroll_rule=False, attacker_boarding=False):
+                    reroll_rule=False, attacker_boarding=False, start_round=1):
     attacker_won = 0
     defender_won = 0
     mutual_destruction = 0
@@ -319,7 +318,7 @@ def simulate_battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Capta
         d_ship = defense_ship.copy()
         a_ship, d_ship = battle(a_ship, d_ship, attack_captain, defense_captain,
                                 use_tiebreaker, average_manoeuvre, defender_hook_boarding,
-                                defender_fleeing, reroll_rule, attacker_boarding=attacker_boarding)
+                                defender_fleeing, reroll_rule, attacker_boarding=attacker_boarding, round=start_round)
         if a_ship.hull > 0 and d_ship.hull <= 0:
             attacker_won += 1
         elif d_ship.hull > 0 and a_ship.hull <= 0:
