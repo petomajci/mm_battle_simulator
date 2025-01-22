@@ -3,6 +3,7 @@ import random
 from abc import ABC
 from dataclasses import dataclass
 import numpy as np
+import pandas as pd
 
 
 # Press ⌃R to execute it or replace it with your code.
@@ -206,8 +207,8 @@ def long_shot(attack_ship: Ship, defense_ship: Ship):
 
 
 def battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Captain, defense_captain: Captain,
-           use_tiebreaker=True, average_manoeuvre=False, defender_hook_boarding=False, defender_fleeing=False,
-           reroll_rule=False, attacker_boarding=False, round=1):
+           use_tiebreaker=True, average_manoeuvre=False, defender_boarding=False, defender_fleeing=False,
+           reroll_rule=False, attacker_boarding=False, round=1, defender_has_hooks=False):
     new_defense_ship = long_shot(attack_ship, defense_ship)
     new_attack_ship = long_shot(defense_ship, attack_ship)
 
@@ -216,18 +217,26 @@ def battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Captain, defen
 
     battle_over = False
     save_hooks = False
+    boarding_success = False
     while attack_ship.hull > 0 and defense_ship.hull > 0 and not battle_over:
+
+        if attack_ship.crew <= 0:
+            attacker_boarding = False
+        if defense_ship.crew <= 0:
+            defender_boarding = False
+
         attack_success, attack_tie, _ = seamanship_contest(attack_captain, attack_ship, defense_ship, average_manoeuvre,
                                                            reroll_rule)
         defense_success, defense_tie, defender_dice = seamanship_contest(defense_captain, defense_ship, attack_ship,
                                                                          average_manoeuvre, reroll_rule)
-        if round == 2 and defender_hook_boarding:
+        if round == 2 and defender_boarding and defender_has_hooks:
             if defense_success == defender_dice or attack_success > defender_dice:
                 # if all dice are hits or no chance of success, safe hooks for next round
                 save_hooks = True
             else:
                 defense_success2, defense_tie = roll_dice(defender_dice - defense_success)
                 defense_success += defense_success2
+                defense_tie = np.sum(defense_tie)
 
         if attack_success > defense_success:
             attack_hits = attack_ship.cannons
@@ -250,17 +259,16 @@ def battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Captain, defen
                 attack_hits = attack_success
                 defense_hits = defense_success
 
-        if round == 1 or not attacker_boarding:
+        if round == 1 or not attacker_boarding or attack_ship.mast == 0:
             new_defense_ship = cannon_fire(attack_ship, defense_ship, attack_hits)
         else:
             new_defense_ship = defense_ship.copy()
             # attacker attempts boarding
             if (attack_success > defense_success) or (
                     attack_success == defense_success and attack_tie > defense_tie):
-                new_attack_ship.hull, new_defense_ship.hull = do_boarding(new_attack_ship, new_defense_ship,
-                                                                          attack_captain, defense_captain)
-        if ((round != 2 or not defender_hook_boarding) and (
-                round == 1 or not defender_fleeing)) or defense_ship.mast == 0:
+                boarding_success = True
+                boarding_initiator = "attacker"
+        if (not defender_boarding and not defender_fleeing) or defense_ship.mast == 0 or round == 1:
             new_attack_ship = cannon_fire(defense_ship, attack_ship, defense_hits)
         else:
             new_attack_ship = attack_ship.copy()
@@ -271,11 +279,20 @@ def battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Captain, defen
                     if attack_success == 0:
                         battle_over = True  # defender flees
             else:
-                # defender attempts boarding (round==2 and defender_hook_boarding)
+                # defender attempts boarding
                 if (defense_success > attack_success) or (
                         defense_success == attack_success and defense_tie > attack_tie):
+                    boarding_success = True
+                    boarding_initiator = "defender"
+        if boarding_success:
+            if boarding_initiator == "attacker":
+                if new_attack_ship.crew > 0 and new_attack_ship.hull > 0:
                     new_attack_ship.hull, new_defense_ship.hull = do_boarding(new_attack_ship, new_defense_ship,
                                                                               attack_captain, defense_captain)
+            else:
+                if new_defense_ship.crew > 0 and new_defense_ship.hull > 0:
+                    new_defense_ship.hull, new_attack_ship.hull = do_boarding(new_defense_ship, new_attack_ship,
+                                                                              defense_captain, attack_captain)
         attack_ship = new_attack_ship
         defense_ship = new_defense_ship
 
@@ -305,9 +322,10 @@ def simulate_battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Capta
                     defense_captain: Captain,
                     n=10000, use_tiebreaker=True,
                     average_manoeuvre=False,
-                    defender_hook_boarding=False,
+                    defender_boarding=False,
                     defender_fleeing=False,
-                    reroll_rule=False, attacker_boarding=False, start_round=1):
+                    reroll_rule=False, attacker_boarding=False, start_round=1,
+                    defender_has_hooks=False, verbose=True):
     attacker_won = 0
     defender_won = 0
     mutual_destruction = 0
@@ -317,8 +335,9 @@ def simulate_battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Capta
         a_ship = attack_ship.copy()
         d_ship = defense_ship.copy()
         a_ship, d_ship = battle(a_ship, d_ship, attack_captain, defense_captain,
-                                use_tiebreaker, average_manoeuvre, defender_hook_boarding,
-                                defender_fleeing, reroll_rule, attacker_boarding=attacker_boarding, round=start_round)
+                                use_tiebreaker, average_manoeuvre, defender_boarding,
+                                defender_fleeing, reroll_rule, attacker_boarding=attacker_boarding, round=start_round,
+                                defender_has_hooks=defender_has_hooks)
         if a_ship.hull > 0 and d_ship.hull <= 0:
             attacker_won += 1
         elif d_ship.hull > 0 and a_ship.hull <= 0:
@@ -327,27 +346,100 @@ def simulate_battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Capta
             mutual_destruction += 1
         else:
             both_survived += 1
-    print(f"Attacker won: {attacker_won}")
-    print(f"Defender won: {defender_won}")
-    print(f"Mutual destruction: {mutual_destruction}")
-    print(f"Both survived: {both_survived}")
+    if verbose:
+        print(f"Attacker won: {attacker_won}")
+        print(f"Defender won: {defender_won}")
+        print(f"Mutual destruction: {mutual_destruction}")
+        print(f"Both survived: {both_survived}")
+    return attacker_won, defender_won, mutual_destruction, both_survived
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     print_hi('PyCharm')
 
+    fleeing_df = pd.DataFrame(columns=["Attacker", "Defender", "Attacker strategy", "Defender strategy", "Attacker won",
+                                       "Defender won", "Mutual destruction", "Both survived",
+                                       "Defender survived", "Attacker survived"])
+
+    for a_ship in [Sloop(), Flute(), Brig(), Brig4(), Frigate(), Frigate4(), Galeon(), Galeon3(), ManOWar()]:
+    #for a_ship in [Sloop()]:
+        for d_ship in [Sloop(), Flute(), Brig(), Brig4(), Frigate(), Frigate4(), Galeon(), Galeon3(), ManOWar()]:
+            min_d_survived = 10_000
+            for a_boarding in [True, False]:
+                max_d_survived = 0
+                for d_strategy in ["Flee", "Board", "Fire"]:
+                    if d_strategy == "Flee":
+                        d_fleeing = True
+                        d_boarding = False
+                    else:
+                        d_fleeing = False
+                        if d_strategy == "Board":
+                            d_boarding = True
+                        else:
+                            d_boarding = False
+
+                    # print(f"Attacker: {a_ship.__class__.__name__}, Defender: {d_ship.__class__.__name__}, "
+                    #       f"a_strategy: {a_boarding}, d_strategy: {d_strategy}")
+                    a_won, d_won, mutual_d, both_s = simulate_battle(attack_ship=a_ship,
+                                                                     defense_ship=d_ship,
+                                                                     attack_captain=Captain(1, 3, 2, 3),
+                                                                     defense_captain=Captain(1, 3, 2, 3),
+                                                                     use_tiebreaker=True,
+                                                                     average_manoeuvre=False,
+                                                                     defender_boarding=d_boarding,
+                                                                     defender_fleeing=d_fleeing,
+                                                                     reroll_rule=True,
+                                                                     attacker_boarding=a_boarding,
+                                                                     defender_has_hooks=False,
+                                                                     verbose=False)
+                    d_survived = d_won + mutual_d / 2 + both_s
+                    if d_survived > max_d_survived:
+                        max_d_survived = d_survived
+                        attacker_survived = a_won + mutual_d/2 + both_s
+                        optimal_d_strategy = d_strategy
+                        optimal_a_won = a_won
+                        optimal_d_won = d_won
+                        optimal_mutual_d = mutual_d
+                        optimal_both_s = both_s
+                if max_d_survived < min_d_survived:
+                    min_d_survived = max_d_survived
+                    min_max_a_strategy = "Board" if a_boarding else "Fire"
+                    min_max_d_strategy = optimal_d_strategy
+                    min_max_a_won = optimal_a_won
+                    min_max_d_won = optimal_d_won
+                    min_max_mutual_d = optimal_mutual_d
+                    min_max_both_s = optimal_both_s
+                    min_max_a_survived = attacker_survived
+            print(f"Attacker: {a_ship.__class__.__name__}, Defender: {d_ship.__class__.__name__}, "
+                  f"a_strategy: {min_max_a_strategy}, d_strategy: {min_max_d_strategy}, defender survived: {min_d_survived}, "
+                  f"attacker survived: {min_max_a_survived}")
+            fleeing_df.loc[len(fleeing_df)] = [a_ship.__class__.__name__,
+                                               d_ship.__class__.__name__,
+                                               min_max_a_strategy,
+                                               min_max_d_strategy,
+                                               min_max_a_won,
+                                               min_max_d_won,
+                                               min_max_mutual_d,
+                                               min_max_both_s,
+                                               min_d_survived,
+                                               min_max_a_survived]
+    fleeing_df.to_csv("fleeing.csv")
+
     for fleeing in [True, False]:
-        simulate_battle(attack_ship=Galeon(),
-                        defense_ship=Galeon(),
-                        attack_captain=Captain(1, 3, 2, 3),
-                        defense_captain=Captain(2, 3, 2, 3),
-                        use_tiebreaker=True,
-                        average_manoeuvre=False,
-                        defender_hook_boarding=False,
-                        defender_fleeing=fleeing,
-                        reroll_rule=True,
-                        attacker_boarding=False)
+        for a_boarding in [True, False]:
+            print(f"Fleeing: {fleeing}, Attacker boarding: {a_boarding}")
+            simulate_battle(attack_ship=Sloop(),
+                            defense_ship=Flute(),
+                            attack_captain=Captain(1, 3, 2, 3),
+                            defense_captain=Captain(1, 3, 2, 3),
+                            use_tiebreaker=True,
+                            average_manoeuvre=False,
+                            defender_boarding=False,
+                            defender_fleeing=fleeing,
+                            reroll_rule=True,
+                            attacker_boarding=a_boarding,
+                            defender_has_hooks=False)
         print()
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
