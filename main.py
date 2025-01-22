@@ -225,6 +225,16 @@ def battle(attack_ship: Ship, defense_ship: Ship, attack_captain: Captain, defen
         if defense_ship.crew <= 0:
             defender_boarding = False
 
+        if attack_ship.cannons <= 0:
+            attacker_boarding = True
+        if defense_ship.cannons <= 0:
+            defender_boarding = True
+        if defense_ship.cannons <= 0 and defense_ship.crew <= 0:
+            defender_fleeing = True
+        if attack_ship.cannons <= 0 and attack_ship.crew <= 0 and defender_fleeing:
+            battle_over = True
+            continue
+
         attack_success, attack_tie, _ = seamanship_contest(attack_captain, attack_ship, defense_ship, average_manoeuvre,
                                                            reroll_rule)
         defense_success, defense_tie, defender_dice = seamanship_contest(defense_captain, defense_ship, attack_ship,
